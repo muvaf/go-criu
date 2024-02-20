@@ -3,6 +3,7 @@ package criu
 import (
 	"errors"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
 	"strconv"
@@ -174,6 +175,18 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 			err = nfy.PostSetupNamespaces()
 		case "post-resume":
 			err = nfy.PostResume()
+		case "orphan-pts-master":
+			scm, err := unix.ParseSocketControlMessage(respB[:respS])
+			if err != nil {
+				return resp, err
+			}
+			fds, err := unix.ParseUnixRights(&scm[0])
+			if err != nil {
+				return resp, err
+			}
+			if err := nfy.OrphanPTSMaster(uintptr(fds[0])); err != nil {
+				return resp, err
+			}
 		default:
 			err = nil
 		}
