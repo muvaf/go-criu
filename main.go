@@ -149,13 +149,14 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 
 		respType := resp.GetType()
 		if respType != rpc.CriuReqType_NOTIFY {
+			fmt.Printf("not notify resp: %s\n", respType.String())
 			break
 		}
 		if nfy == nil {
 			return resp, errors.New("unexpected notify")
 		}
-
 		notify := resp.GetNotify()
+		fmt.Printf("notify: %s\n", notify.GetScript())
 		switch notify.GetScript() {
 		case "pre-dump":
 			err = nfy.PreDump()
@@ -176,15 +177,26 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 		case "post-resume":
 			err = nfy.PostResume()
 		case "orphan-pts-master":
-			scm, err := unix.ParseSocketControlMessage(respB[:respS])
+			fmt.Println("received orphan-pts-master")
+			cmsgs, err := unix.ParseSocketControlMessage(respB[:respS])
 			if err != nil {
 				return resp, err
 			}
-			fds, err := unix.ParseUnixRights(&scm[0])
-			if err != nil {
-				return resp, err
+			fd := uintptr(0)
+			for _, cmsg := range cmsgs {
+				if cmsg.Header.Type == unix.SCM_RIGHTS {
+					continue
+				}
+				fds, err := unix.ParseUnixRights(&cmsg)
+				if err != nil {
+					return resp, err
+				}
+				if len(fds) != 1 {
+					return resp, errors.New("expected exactly one fd")
+				}
+				fd = uintptr(fds[0])
 			}
-			if err := nfy.OrphanPTSMaster(uintptr(fds[0])); err != nil {
+			if err := nfy.OrphanPTSMaster(fd); err != nil {
 				return resp, err
 			}
 		default:
