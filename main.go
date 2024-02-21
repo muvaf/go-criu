@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 )
 
 // Criu struct
@@ -49,9 +48,13 @@ func (c *Criu) Prepare() error {
 	criuClientCon := criuClientFileCon.(*net.UnixConn)
 
 	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
-	args := []string{"swrk", strconv.Itoa(fds[1])}
+	// 3 is the fd number for the server file we pass using ExtraFiles.
+	// 0, 1 and 2 are reserved for stdin, stdout and stderr.
+	args := []string{"swrk", "3"}
 	// #nosec G204
 	cmd := exec.Command(c.swrkPath, args...)
+	cmd.ExtraFiles = append(cmd.ExtraFiles, criuServer)
+	// TODO(muvaf): remove
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
