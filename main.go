@@ -3,21 +3,21 @@ package criu
 import (
 	"errors"
 	"fmt"
+	"github.com/checkpoint-restore/go-criu/v7/rpc"
 	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/proto"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
-	"syscall"
-
-	"github.com/checkpoint-restore/go-criu/v7/rpc"
-	"google.golang.org/protobuf/proto"
 )
 
 // Criu struct
 type Criu struct {
-	swrkCmd  *exec.Cmd
-	swrkSk   *os.File
-	swrkPath string
+	swrkCmd    *exec.Cmd
+	swrkClient *net.UnixConn
+	swrkServer *os.File
+	swrkPath   string
 }
 
 // MakeCriu returns the Criu object required for most operations
@@ -35,15 +35,20 @@ func (c *Criu) SetCriuPath(path string) {
 
 // Prepare sets up everything for the RPC communication to CRIU
 func (c *Criu) Prepare() error {
-	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_SEQPACKET, 0)
+	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
 
-	cln := os.NewFile(uintptr(fds[0]), "criu-xprt-cln")
-	syscall.CloseOnExec(fds[0])
-	srv := os.NewFile(uintptr(fds[1]), "criu-xprt-srv")
-	defer srv.Close()
+	criuClient := os.NewFile(uintptr(fds[0]), "criu-transport-client")
+	criuClientFileCon, err := net.FileConn(criuClient)
+	criuClient.Close()
+	if err != nil {
+		return err
+	}
+	criuClientCon := criuClientFileCon.(*net.UnixConn)
+
+	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
 
 	args := []string{"swrk", strconv.Itoa(fds[1])}
 	// #nosec G204
@@ -51,12 +56,13 @@ func (c *Criu) Prepare() error {
 
 	err = cmd.Start()
 	if err != nil {
-		cln.Close()
+		criuClientFileCon.Close()
 		return err
 	}
 
 	c.swrkCmd = cmd
-	c.swrkSk = cln
+	c.swrkClient = criuClientCon
+	c.swrkServer = criuServer
 
 	return nil
 }
@@ -64,15 +70,17 @@ func (c *Criu) Prepare() error {
 // Cleanup cleans up
 func (c *Criu) Cleanup() {
 	if c.swrkCmd != nil {
-		c.swrkSk.Close()
-		c.swrkSk = nil
+		c.swrkClient.Close()
+		c.swrkClient = nil
+		c.swrkServer.Close()
+		c.swrkServer = nil
 		_ = c.swrkCmd.Wait()
 		c.swrkCmd = nil
 	}
 }
 
 func (c *Criu) sendAndRecv(reqB []byte) ([]byte, int, error) {
-	cln := c.swrkSk
+	cln := c.swrkClient
 	_, err := cln.Write(reqB)
 	if err != nil {
 		return nil, 0, err
