@@ -79,20 +79,28 @@ func (c *Criu) Cleanup() {
 	}
 }
 
-func (c *Criu) sendAndRecv(reqB []byte) ([]byte, int, error) {
-	cln := c.swrkClient
-	_, err := cln.Write(reqB)
+func (c *Criu) sendAndRecv(reqB []byte) ([]byte, []byte, error) {
+	_, err := c.swrkClient.Write(reqB)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 
-	respB := make([]byte, 2*4096)
-	n, err := cln.Read(respB)
+	fmt.Println("sent the request, reading response")
+	buf := make([]byte, 10*4096)
+	oob := make([]byte, 4096)
+	n, oobn, _, _, err := c.swrkClient.ReadMsgUnix(buf, oob)
+	fmt.Println("read the response")
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
-
-	return respB, n, nil
+	if n == 0 {
+		return nil, nil, errors.New("unexpected EOF")
+	}
+	if n == len(buf) {
+		return nil, nil, errors.New("buffer is too small")
+	}
+	fmt.Println("returning response")
+	return buf[:n], oob[:oobn], nil
 }
 
 func (c *Criu) doSwrk(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy Notify) error {
@@ -142,14 +150,14 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 		}
 
 		fmt.Println("sending first request")
-		respB, respS, err := c.sendAndRecv(reqB)
+		respB, oobB, err := c.sendAndRecv(reqB)
 		if err != nil {
 			return nil, err
 		}
 		fmt.Println("received first response")
 
 		resp = &rpc.CriuResp{}
-		err = proto.Unmarshal(respB[:respS], resp)
+		err = proto.Unmarshal(respB, resp)
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +198,7 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 			err = nfy.PostResume()
 		case "orphan-pts-master":
 			fmt.Println("received orphan-pts-master")
-			cmsgs, err := unix.ParseSocketControlMessage(respB[:respS])
+			cmsgs, err := unix.ParseSocketControlMessage(oobB)
 			if err != nil {
 				return resp, err
 			}
