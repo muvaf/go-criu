@@ -125,6 +125,7 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 	}
 
 	if c.swrkCmd == nil {
+		fmt.Println("Preparing swrk")
 		err := c.Prepare()
 		if err != nil {
 			return nil, err
@@ -133,16 +134,19 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 		defer c.Cleanup()
 	}
 
+	fmt.Println("swrk is ready")
 	for {
 		reqB, err := proto.Marshal(&req)
 		if err != nil {
 			return nil, err
 		}
 
+		fmt.Println("sending first request")
 		respB, respS, err := c.sendAndRecv(reqB)
 		if err != nil {
 			return nil, err
 		}
+		fmt.Println("received first response")
 
 		resp = &rpc.CriuResp{}
 		err = proto.Unmarshal(respB[:respS], resp)
