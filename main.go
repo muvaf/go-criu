@@ -53,6 +53,8 @@ func (c *Criu) Prepare() error {
 	args := []string{"swrk", strconv.Itoa(fds[1])}
 	// #nosec G204
 	cmd := exec.Command(c.swrkPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	err = cmd.Start()
 	if err != nil {
