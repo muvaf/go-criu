@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 )
 
 // Criu struct
@@ -50,7 +49,7 @@ func (c *Criu) Prepare() error {
 
 	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
 
-	args := []string{"swrk", strconv.Itoa(fds[1])}
+	args := []string{"swrk", "3"}
 	// #nosec G204
 	cmd := exec.Command(c.swrkPath, args...)
 	cmd.Stdout = os.Stdout
