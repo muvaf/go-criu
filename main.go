@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 )
 
 // Criu struct
@@ -34,7 +35,7 @@ func (c *Criu) SetCriuPath(path string) {
 
 // Prepare sets up everything for the RPC communication to CRIU
 func (c *Criu) Prepare() error {
-	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET, 0)
 	if err != nil {
 		return err
 	}
@@ -48,8 +49,7 @@ func (c *Criu) Prepare() error {
 	criuClientCon := criuClientFileCon.(*net.UnixConn)
 
 	criuServer := os.NewFile(uintptr(fds[1]), "criu-transport-server")
-
-	args := []string{"swrk", "3"}
+	args := []string{"swrk", strconv.Itoa(fds[1])}
 	// #nosec G204
 	cmd := exec.Command(c.swrkPath, args...)
 	cmd.Stdout = os.Stdout
@@ -86,11 +86,9 @@ func (c *Criu) sendAndRecv(reqB []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	fmt.Println("sent the request, reading response")
 	buf := make([]byte, 10*4096)
 	oob := make([]byte, 4096)
 	n, oobn, _, _, err := c.swrkClient.ReadMsgUnix(buf, oob)
-	fmt.Println("read the response")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,7 +98,6 @@ func (c *Criu) sendAndRecv(reqB []byte) ([]byte, []byte, error) {
 	if n == len(buf) {
 		return nil, nil, errors.New("buffer is too small")
 	}
-	fmt.Println("returning response")
 	return buf[:n], oob[:oobn], nil
 }
 
@@ -134,7 +131,6 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 	}
 
 	if c.swrkCmd == nil {
-		fmt.Println("Preparing swrk")
 		err := c.Prepare()
 		if err != nil {
 			return nil, err
@@ -143,19 +139,16 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 		defer c.Cleanup()
 	}
 
-	fmt.Println("swrk is ready")
 	for {
 		reqB, err := proto.Marshal(&req)
 		if err != nil {
 			return nil, err
 		}
 
-		fmt.Println("sending first request")
 		respB, oobB, err := c.sendAndRecv(reqB)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("received first response")
 
 		resp = &rpc.CriuResp{}
 		err = proto.Unmarshal(respB, resp)
@@ -170,7 +163,6 @@ func (c *Criu) doSwrkWithResp(reqType rpc.CriuReqType, opts *rpc.CriuOpts, nfy N
 
 		respType := resp.GetType()
 		if respType != rpc.CriuReqType_NOTIFY {
-			fmt.Printf("not notify resp: %s\n", respType.String())
 			break
 		}
 		if nfy == nil {
