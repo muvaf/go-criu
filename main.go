@@ -34,7 +34,7 @@ func (c *Criu) SetCriuPath(path string) {
 
 // Prepare sets up everything for the RPC communication to CRIU
 func (c *Criu) Prepare() error {
-	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET, 0)
+	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
